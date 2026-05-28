@@ -1,0 +1,25 @@
+# SSH tunnel config for the Nora remote box.
+#
+# Use it one of two ways:
+#   1) Include it from your main config. Add this line to the TOP of ~/.ssh/config:
+#          Include ~/path/to/this/repo/ssh/config
+#   2) Or copy the "Host nora-tunnel" block below into ~/.ssh/config directly.
+#
+# Then connect with:  ssh nora-tunnel
+# Open in browser:    http://localhost:8080
+
+Host nora-tunnel
+    HostName 154.59.156.22
+    Port 43010
+    User root
+
+    # Forward local 8080 -> remote localhost:8080
+    LocalForward 8080 localhost:8080
+
+    # Private key matching keys/joseph-mac.pub. Adjust if yours lives elsewhere.
+    IdentityFile ~/.ssh/id_ed25519
+
+    # Keep the tunnel alive through idle periods / flaky networks.
+    ServerAliveInterval 60
+    ServerAliveCountMax 3
+    ExitOnForwardFailure yes
