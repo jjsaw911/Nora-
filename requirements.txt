@@ -1,0 +1,11 @@
+# Nora — Phase 1 voice agent dependencies
+#
+# Pinned to a floor known to expose the current OpenAI Realtime S2S service
+# (`pipecat.services.openai.realtime`) and the SmallWebRTC transport + dev runner.
+# If pip resolves a newer release whose API has shifted, see README "Version notes".
+
+pipecat-ai[openai,webrtc,silero]>=0.0.84
+pipecat-ai-small-webrtc-prebuilt>=0.4.0
+
+python-dotenv>=1.0.1
+loguru>=0.7.2
