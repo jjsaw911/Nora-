@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- A simple radio-wave glyph centred in the adaptive-icon safe zone. -->
+    <group android:translateX="14" android:translateY="14">
+        <path
+            android:strokeColor="#4CC9F0"
+            android:strokeWidth="4"
+            android:strokeLineCap="round"
+            android:fillColor="#00000000"
+            android:pathData="M26,54 a28,28 0 0 1 28,-28" />
+        <path
+            android:strokeColor="#4CC9F0"
+            android:strokeWidth="4"
+            android:strokeLineCap="round"
+            android:fillColor="#00000000"
+            android:pathData="M36,54 a18,18 0 0 1 18,-18" />
+        <path
+            android:strokeColor="#4CC9F0"
+            android:strokeWidth="4"
+            android:strokeLineCap="round"
+            android:fillColor="#00000000"
+            android:pathData="M46,54 a8,8 0 0 1 8,-8" />
+        <path android:fillColor="#F72585" android:pathData="M54,50 m-5,0 a5,5 0 1,0 10,0 a5,5 0 1,0 -10,0" />
+    </group>
+</vector>
