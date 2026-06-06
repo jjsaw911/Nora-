@@ -1,0 +1,5 @@
+<resources>
+    <!-- Compose supplies the real colours via dynamicColor/Material3; this is
+         just a Material base so the manifest theme resolves before Compose. -->
+    <style name="Theme.NetworkedSDR" parent="android:Theme.Material.NoActionBar" />
+</resources>

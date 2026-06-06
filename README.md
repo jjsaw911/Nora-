@@ -1,97 +1,81 @@
-# Nora SSH tunnel
+# Networked SDR
 
-Forwards your local **`http://localhost:8080`** to **`localhost:8080`** on the
-remote box `154.59.156.22`, so you can reach a service running there as if it
-were local.
+A Raspberry Pi hosts an RTL-SDR dongle and does **all** the DSP, exposing a
+small HTTP + WebSocket API. The Android app is a **thin client**: it sends
+control commands, plays the demodulated audio stream, and draws a waterfall from
+FFT frames the Pi sends. No SDR DSP happens on the phone.
 
-Equivalent to running:
+This split keeps bandwidth low (~30–400 kbps instead of ~38 Mbps of raw IQ), so
+it works over the internet, not just the LAN.
+
+```
+   RTL-SDR ──USB──> Raspberry Pi ──HTTP/WS──> Android app
+                    (FastAPI + DSP)            (thin client)
+                  REST control plane          plays PCM audio,
+                  /ws/audio  (PCM 24k)         draws waterfall
+                  /ws/spectrum (1024-bin FFT)
+```
+
+## Repo layout
+```
+pi-server/    FastAPI server: DSP, REST + WebSocket API, test clients   (Part A)
+android/      Kotlin/Compose thin client                                (Part B)
+ssh/, keys/, tunnel.sh   SSH tunnel helpers for reaching a remote Pi
+```
+
+## Run the Pi server
+```bash
+cd pi-server
+python3 -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt
+python run.py                 # http://0.0.0.0:8080
+
+# No dongle? Run the synthetic source (audio tone + waterfall carriers):
+SDR_FORCE_MOCK=1 python run.py
+```
+Hardware setup (blacklisting the kernel DVB-T driver, `rtl_test`, sample-rate
+notes) and the full API reference are in **[pi-server/README.md](pi-server/README.md)**.
+
+Verify without a phone:
+- `bash pi-server/tests/curl_examples.sh` — drive the control API.
+- open `http://<pi>:8080/test/audio` — hear the stream in a browser.
+- open `http://<pi>:8080/test/waterfall` — live waterfall in a browser.
+
+## Run the Android client
+```bash
+cd android
+./gradlew assembleDebug
+adb install -r app/build/outputs/apk/debug/app-debug.apk
+adb logcat -s NetworkedSDR:*
+```
+In the app: **Settings** → enter the Pi host/port → **Connect** → tune. Details
+in **[android/README.md](android/README.md)**.
+
+## Build order (vertical slices)
+- **M1** Pi audio path — WBFM → PCM over `/ws/audio`. ✅
+- **M2** Control API — `/tune` `/gain` `/mode` `/squelch`. ✅
+- **M3** Spectrum path — 1024-bin FFT over `/ws/spectrum`. ✅
+- **M4** Android core — connect, play audio, change freq/gain/mode. ✅
+- **M5** Android waterfall — scrolling spectrum + line. ✅
+- **M6** Polish — squelch, NBFM/AM, auto-reconnect, persisted settings,
+  tap-to-tune. ✅
+
+M1–M3 are fully testable on the Pi/laptop with the browser + curl clients (and
+the bundled mock source) — no phone required. M4+ needs a device on `adb`; RF
+reception is confirmed by the human operator.
+
+## Remote access (optional)
+
+If the Pi lives behind the `nora` remote box, `tunnel.sh` / `ssh/config` forward
+a local port to it so the app/test pages can reach `localhost:8080`:
 
 ```sh
-ssh -p 43010 root@154.59.156.22 -L 8080:localhost:8080
+./tunnel.sh --tunnel-only      # forward local 8080 -> remote localhost:8080
 ```
+See the connection details and key-authorization steps in
+[ssh/config](ssh/config) and `tunnel.sh`.
 
-> Run all of this from **your own machine** — not from a CI/sandbox, which
-> can't reach the remote host.
-
-## Connection details
-
-| Setting        | Value             |
-| -------------- | ----------------- |
-| Host           | `154.59.156.22`   |
-| Port           | `43010`           |
-| User           | `root`            |
-| Local forward  | `8080 -> localhost:8080` |
-
-## Files
-
-- `ssh/config` — an SSH `Host nora-tunnel` block you can include/copy into `~/.ssh/config`.
-- `tunnel.sh` — a standalone connect script (no SSH config changes needed).
-- `keys/joseph-mac.pub` — the public key authorized to log in (`joseph-mac`).
-
-## 1. One-time setup: authorize your key on the server
-
-The tunnel is passwordless only once your **public** key is in `root`'s
-`authorized_keys` on the remote box. From your Mac:
-
-```sh
-# Easiest — copies your key and appends it correctly:
-ssh-copy-id -i keys/joseph-mac.pub -p 43010 root@154.59.156.22
-```
-
-Or do it manually (if `ssh-copy-id` isn't available):
-
-```sh
-cat keys/joseph-mac.pub | ssh -p 43010 root@154.59.156.22 \
-  'mkdir -p ~/.ssh && chmod 700 ~/.ssh && cat >> ~/.ssh/authorized_keys && chmod 600 ~/.ssh/authorized_keys'
-```
-
-Both prompt for the server password the first time; after that, key auth works.
-
-## 2. Connect
-
-**Option A — via the script:**
-
-```sh
-./tunnel.sh                 # opens a remote shell with the tunnel active
-./tunnel.sh --tunnel-only   # forward only, no shell (good for backgrounding)
-```
-
-Override any value with env vars, e.g. `LOCAL_PORT=9090 ./tunnel.sh`.
-
-**Option B — via SSH config:**
-
-Add to the top of `~/.ssh/config`:
-
-```sshconfig
-Include ~/path/to/this/repo/ssh/config
-```
-
-(or paste the `Host nora-tunnel` block in directly), then:
-
-```sh
-ssh nora-tunnel
-```
-
-## 3. Verify
-
-With the tunnel open, in another terminal:
-
-```sh
-curl -v http://localhost:8080/
-```
-
-or just open <http://localhost:8080> in a browser.
-
-## Troubleshooting
-
-- **`bind: Address already in use`** — local `8080` is taken. Use a different
-  local port: `LOCAL_PORT=9090 ./tunnel.sh` (then browse `localhost:9090`).
-- **`Permission denied (publickey)`** — your key isn't authorized yet (redo
-  step 1) or `IdentityFile` in `ssh/config` points at the wrong private key.
-- **`channel ... open failed: connect failed`** — nothing is listening on
-  `localhost:8080` *on the remote*; start the remote service first.
-- **Connection hangs / drops** — the keepalive settings
-  (`ServerAliveInterval`/`ServerAliveCountMax`) already retry; check the host,
-  port `43010`, and any firewall in between.
-- **Confirm the forward is active** — add `-v` (e.g. `./tunnel.sh -v`) and look
-  for `Local forwarding listening on ... port 8080`.
+## Non-goals (v1)
+One stream at a time; no transmit, recording, or extra decoders (ADS-B/POCSAG).
+Raw PCM audio for now (Opus is a documented TODO). The phone never touches the
+USB dongle — the Pi owns it.
