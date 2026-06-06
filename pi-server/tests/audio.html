@@ -1,0 +1,63 @@
+<!doctype html>
+<meta charset="utf-8" />
+<title>Networked SDR — audio test</title>
+<style>
+  body { font-family: system-ui, sans-serif; max-width: 640px; margin: 2rem auto; }
+  button, input, select { font-size: 1rem; padding: .4rem .6rem; }
+  #log { white-space: pre-wrap; background: #111; color: #0f0; padding: 1rem;
+         border-radius: 6px; height: 12rem; overflow: auto; }
+  .row { margin: .6rem 0; }
+</style>
+<h1>Networked SDR — audio test</h1>
+<div class="row">
+  WebSocket: <input id="url" size="40" value="ws://localhost:8080/ws/audio" />
+  <button id="connect">Connect</button>
+  <button id="stop">Stop</button>
+</div>
+<div class="row">
+  Volume <input id="vol" type="range" min="0" max="1" step="0.01" value="0.8" />
+</div>
+<div class="row">Status: <b id="status">idle</b></div>
+<div id="log"></div>
+
+<script>
+// Plays raw PCM (s16le mono) from /ws/audio via WebAudio. A small jitter
+// buffer is scheduled ahead of the audio clock to avoid underruns.
+const logEl = document.getElementById("log");
+const statusEl = document.getElementById("status");
+const log = (m) => { logEl.textContent += m + "\n"; logEl.scrollTop = logEl.scrollHeight; };
+
+let ws, audioCtx, gainNode, nextTime = 0, rate = 24000;
+
+function connect() {
+  const url = document.getElementById("url").value;
+  audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  gainNode = audioCtx.createGain();
+  gainNode.gain.value = parseFloat(document.getElementById("vol").value);
+  gainNode.connect(audioCtx.destination);
+  nextTime = 0;
+
+  ws = new WebSocket(url);
+  ws.binaryType = "arraybuffer";
+  ws.onopen = () => { statusEl.textContent = "connected"; log("connected to " + url); };
+  ws.onclose = () => { statusEl.textContent = "closed"; log("closed"); };
+  ws.onerror = (e) => log("error: " + e.message);
+  ws.onmessage = (ev) => {
+    if (typeof ev.data === "string") { rate = JSON.parse(ev.data).rate; log("format: " + ev.data); return; }
+    const pcm = new Int16Array(ev.data);
+    const buf = audioCtx.createBuffer(1, pcm.length, rate);
+    const ch = buf.getChannelData(0);
+    for (let i = 0; i < pcm.length; i++) ch[i] = pcm[i] / 32768;
+    const src = audioCtx.createBufferSource();
+    src.buffer = buf; src.connect(gainNode);
+    const now = audioCtx.currentTime;
+    if (nextTime < now + 0.05) nextTime = now + 0.1; // (re)prime jitter buffer
+    src.start(nextTime);
+    nextTime += buf.duration;
+  };
+}
+
+document.getElementById("connect").onclick = () => { if (audioCtx) audioCtx.resume(); connect(); };
+document.getElementById("stop").onclick = () => { if (ws) ws.close(); if (audioCtx) audioCtx.close(); };
+document.getElementById("vol").oninput = (e) => { if (gainNode) gainNode.gain.value = parseFloat(e.target.value); };
+</script>

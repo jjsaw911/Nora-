@@ -1,0 +1,79 @@
+<!doctype html>
+<meta charset="utf-8" />
+<title>Networked SDR — waterfall test</title>
+<style>
+  body { font-family: system-ui, sans-serif; max-width: 1100px; margin: 1.5rem auto; }
+  canvas { width: 100%; image-rendering: pixelated; border: 1px solid #333; display: block; }
+  .row { margin: .5rem 0; }
+  #spectrum { height: 120px; background: #000; }
+  #waterfall { height: 420px; }
+  input { font-size: 1rem; padding: .3rem; }
+</style>
+<h1>Networked SDR — spectrum + waterfall</h1>
+<div class="row">
+  WebSocket <input id="url" size="38" value="ws://localhost:8080/ws/spectrum" />
+  Status base <input id="base" size="30" value="http://localhost:8080" />
+  <button id="connect">Connect</button>
+</div>
+<div class="row">Center: <b id="center">?</b> &nbsp; Span: <b id="span">?</b> &nbsp; <b id="status">idle</b></div>
+<canvas id="spectrum" width="1024" height="120"></canvas>
+<canvas id="waterfall" width="1024" height="420"></canvas>
+
+<script>
+// Each /ws/spectrum frame is 1024 uint8 bytes (power, -100..0 dBFS -> 0..255).
+// New frame = top row of the waterfall; existing image scrolls down one row.
+const BINS = 1024;
+const wf = document.getElementById("waterfall");
+const sp = document.getElementById("spectrum");
+const wfx = wf.getContext("2d");
+const spx = sp.getContext("2d");
+const statusEl = document.getElementById("status");
+let ws;
+
+// blue -> cyan -> yellow -> red palette
+function color(v) {
+  const t = v / 255;
+  const r = Math.max(0, Math.min(255, 255 * (t - 0.5) * 2));
+  const g = Math.max(0, Math.min(255, 255 * (1 - Math.abs(t - 0.5) * 2)));
+  const b = Math.max(0, Math.min(255, 255 * (0.5 - t) * 2));
+  return [r, g, b];
+}
+
+async function fetchStatus() {
+  try {
+    const base = document.getElementById("base").value;
+    const s = await (await fetch(base + "/status")).json();
+    document.getElementById("center").textContent = (s.center_hz / 1e6).toFixed(3) + " MHz";
+    document.getElementById("span").textContent = (s.sample_rate / 1e6).toFixed(3) + " MHz";
+  } catch (e) { /* ignore */ }
+}
+
+function connect() {
+  fetchStatus();
+  ws = new WebSocket(document.getElementById("url").value);
+  ws.binaryType = "arraybuffer";
+  ws.onopen = () => statusEl.textContent = "connected";
+  ws.onclose = () => statusEl.textContent = "closed";
+  ws.onmessage = (ev) => {
+    const bytes = new Uint8Array(ev.data);
+    if (bytes.length !== BINS) return;
+    // scroll waterfall down by 1px
+    wfx.drawImage(wf, 0, 0, BINS, wf.height, 0, 1, BINS, wf.height);
+    const row = wfx.createImageData(BINS, 1);
+    for (let i = 0; i < BINS; i++) {
+      const [r, g, b] = color(bytes[i]);
+      row.data[i * 4] = r; row.data[i * 4 + 1] = g; row.data[i * 4 + 2] = b; row.data[i * 4 + 3] = 255;
+    }
+    wfx.putImageData(row, 0, 0);
+    // spectrum line
+    spx.fillStyle = "#000"; spx.fillRect(0, 0, BINS, sp.height);
+    spx.strokeStyle = "#0f0"; spx.beginPath();
+    for (let i = 0; i < BINS; i++) {
+      const y = sp.height - (bytes[i] / 255) * sp.height;
+      i === 0 ? spx.moveTo(i, y) : spx.lineTo(i, y);
+    }
+    spx.stroke();
+  };
+}
+document.getElementById("connect").onclick = connect;
+</script>

@@ -1,0 +1,6 @@
+# Networked SDR — Pi server dependencies
+fastapi>=0.110
+uvicorn[standard]>=0.27
+numpy>=1.24
+scipy>=1.10
+pyrtlsdr>=0.3.0   # binding to librtlsdr; the mock source works without it
