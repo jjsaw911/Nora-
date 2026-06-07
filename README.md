@@ -1,97 +1,96 @@
-# Nora SSH tunnel
+# Nora NXDN
 
-Forwards your local **`http://localhost:8080`** to **`localhost:8080`** on the
-remote box `154.59.156.22`, so you can reach a service running there as if it
-were local.
+A clean-room **NXDN decoder for macOS + RTL-SDR**, written in Python. It
+reverse-engineers the on-air format the way [DSD](https://github.com/szechyjs/dsd)
+does — frame sync, LICH, scrambling, interleaving, channel grants — and is
+built for a **two-dongle trunk-tracking** setup (one stick on the control
+channel, one following voice).
 
-Equivalent to running:
+The DSP and protocol layers are fully unit-tested against synthetic signals, so
+the whole thing builds and passes its 46 tests **with no radio attached**.
+
+```
+$ nora-nxdn decode --iq-file capture.cu8 --sample-rate 240000 --symbol-rate 4800
+sync=BS_VOICE pol=norm lich=0x36 parity=ok off=8/8 :: Voice in both half-slots
+sync=BS_VOICE pol=norm lich=0x36 parity=ok off=8/8 :: Voice in both half-slots
+```
+
+## What it does
+
+- **Demodulate** 4FSK NXDN from RTL-SDR IQ: FM discriminator → RRC matched
+  filter → Gardner symbol-clock recovery → 4-level slicer.
+- **Frame sync** via DSD-style sign-only FSW correlation (BS/MS, voice/data,
+  polarity-inverted), with fuzzy tolerance.
+- **LICH** decode: parity check + burst classification (voice/FACCH/SACCH/CAC,
+  half-slot stealing, inbound vs outbound).
+- **PN95 descrambling** and **block de-interleaving** (the DSD/OP25 maps).
+- **Dual-dongle trunk following**: park on the control channel, retune the
+  second dongle to granted voice channels, hangtime + talkgroup whitelist.
+
+## What it does *not* do (by design)
+
+- **No voice audio.** NXDN voice is the proprietary AMBE+2 vocoder. This tool
+  extracts and de-interleaves voice frames but hands them to an external
+  decoder (`mbelib`/`dsd`/an AMBE dongle). See
+  [`docs/protocol-notes.md`](docs/protocol-notes.md).
+
+## Quick start
 
 ```sh
-ssh -p 43010 root@154.59.156.22 -L 8080:localhost:8080
+python3 -m venv .venv && source .venv/bin/activate
+pip install -e ".[dev]"
+pytest                       # 46 tests, no hardware
+
+nora-nxdn info               # show the frame sync words in use
+nora-nxdn decode --serial 00000001 --freq 451000000 \
+                 --sample-rate 240000 --symbol-rate 4800
 ```
 
-> Run all of this from **your own machine** — not from a CI/sandbox, which
-> can't reach the remote host.
+Full Mac setup (Homebrew `librtlsdr`, per-dongle serials, trunking) is in
+[`docs/macos-setup.md`](docs/macos-setup.md).
 
-## Connection details
-
-| Setting        | Value             |
-| -------------- | ----------------- |
-| Host           | `154.59.156.22`   |
-| Port           | `43010`           |
-| User           | `root`            |
-| Local forward  | `8080 -> localhost:8080` |
-
-## Files
-
-- `ssh/config` — an SSH `Host nora-tunnel` block you can include/copy into `~/.ssh/config`.
-- `tunnel.sh` — a standalone connect script (no SSH config changes needed).
-- `keys/joseph-mac.pub` — the public key authorized to log in (`joseph-mac`).
-
-## 1. One-time setup: authorize your key on the server
-
-The tunnel is passwordless only once your **public** key is in `root`'s
-`authorized_keys` on the remote box. From your Mac:
+## Two-dongle trunk following
 
 ```sh
-# Easiest — copies your key and appends it correctly:
-ssh-copy-id -i keys/joseph-mac.pub -p 43010 root@154.59.156.22
+nora-nxdn trunk --channel-map examples/nxdn_chan_map.csv \
+                --control-freq 423862500 \
+                --control-device 0 --voice-device 1 --hangtime 3.0
 ```
 
-Or do it manually (if `ssh-copy-id` isn't available):
+Dongle 0 camps on the control channel; dongle 1 follows each granted voice
+channel. Architecture diagram: [`docs/architecture.md`](docs/architecture.md).
 
-```sh
-cat keys/joseph-mac.pub | ssh -p 43010 root@154.59.156.22 \
-  'mkdir -p ~/.ssh && chmod 700 ~/.ssh && cat >> ~/.ssh/authorized_keys && chmod 600 ~/.ssh/authorized_keys'
+## Layout
+
+```
+nora_nxdn/        the package
+  dsp.py            IQ → symbols (discriminator, RRC, Gardner, slicer)
+  framing.py        frame-sync-word detection + burst typing
+  lich.py           LICH parse + burst classification
+  scramble.py       PN95 dibit (de)scrambler
+  deinterleave.py   block interleave maps + AMBE schedule
+  channelmap.py     channel-number ↔ frequency
+  sdr.py            rtl_sdr / IQ-file / fake sources
+  trunk.py          dual-dongle follow controller
+  cli.py            decode / trunk / info
+tests/            46 tests (synthetic signals, fake SDR + clock)
+docs/             setup, architecture, protocol notes, ssh-tunnel
+examples/         sample NXDN channel map
 ```
 
-Both prompt for the server password the first time; after that, key auth works.
+## Attribution & license
 
-## 2. Connect
+`nora-nxdn` is GPL-3.0-or-later. Its NXDN constants are derived from the DSD /
+DSD-FME / OP25 projects; see [`NOTICE.md`](NOTICE.md) for exact provenance and
+[`LICENSE`](LICENSE) for terms.
 
-**Option A — via the script:**
+## Legal
 
-```sh
-./tunnel.sh                 # opens a remote shell with the tunnel active
-./tunnel.sh --tunnel-only   # forward only, no shell (good for backgrounding)
-```
+Decode only traffic you are permitted to receive in your jurisdiction. This is
+a protocol/educational tool for unencrypted, lawfully-receivable signals.
 
-Override any value with env vars, e.g. `LOCAL_PORT=9090 ./tunnel.sh`.
+---
 
-**Option B — via SSH config:**
-
-Add to the top of `~/.ssh/config`:
-
-```sshconfig
-Include ~/path/to/this/repo/ssh/config
-```
-
-(or paste the `Host nora-tunnel` block in directly), then:
-
-```sh
-ssh nora-tunnel
-```
-
-## 3. Verify
-
-With the tunnel open, in another terminal:
-
-```sh
-curl -v http://localhost:8080/
-```
-
-or just open <http://localhost:8080> in a browser.
-
-## Troubleshooting
-
-- **`bind: Address already in use`** — local `8080` is taken. Use a different
-  local port: `LOCAL_PORT=9090 ./tunnel.sh` (then browse `localhost:9090`).
-- **`Permission denied (publickey)`** — your key isn't authorized yet (redo
-  step 1) or `IdentityFile` in `ssh/config` points at the wrong private key.
-- **`channel ... open failed: connect failed`** — nothing is listening on
-  `localhost:8080` *on the remote*; start the remote service first.
-- **Connection hangs / drops** — the keepalive settings
-  (`ServerAliveInterval`/`ServerAliveCountMax`) already retry; check the host,
-  port `43010`, and any firewall in between.
-- **Confirm the forward is active** — add `-v` (e.g. `./tunnel.sh -v`) and look
-  for `Local forwarding listening on ... port 8080`.
+> The original Nora **SSH tunnel** helper now lives in
+> [`docs/ssh-tunnel.md`](docs/ssh-tunnel.md) (`tunnel.sh`, `ssh/config`, and
+> `keys/` are unchanged).
