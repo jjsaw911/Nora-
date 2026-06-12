@@ -1,0 +1,48 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "nx3000-codeplug"
+version = "0.1.0"
+description = "Read-only codeplug backup tool for the Kenwood NX-3000 series (NX-3320K3)"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [{ name = "Nora project" }]
+keywords = ["kenwood", "nx-3000", "nxdn", "codeplug", "serial", "reverse-engineering"]
+
+# Keep deps minimal. pyserial is the only hard runtime requirement.
+dependencies = [
+    "pyserial>=3.5",
+]
+
+[project.optional-dependencies]
+# CRC/checksum brute-force search helper.
+crc = ["crccheck>=1.3"]
+# Dev/test tooling.
+dev = [
+    "pytest>=8.0",
+    "pytest-cov>=4.1",
+]
+
+[project.scripts]
+nx3000 = "nx3000.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/jjsaw911/nora-"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-dir]
+"" = "src"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+addopts = "-ra"
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
