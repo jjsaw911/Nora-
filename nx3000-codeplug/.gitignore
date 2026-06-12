@@ -1,0 +1,22 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+venv/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Recovered codeplugs and manifests — never commit a real radio's config blob.
+*.bin
+codeplug_*.json
+!tests/**/*.bin
+
+# Large raw captures. Keep small decoded fixtures under tests/fixtures/ tracked.
+captures/*
+!captures/.gitkeep
+!captures/README.md
