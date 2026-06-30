@@ -9,3 +9,6 @@ pipecat-ai-small-webrtc-prebuilt>=0.4.0
 
 python-dotenv>=1.0.1
 loguru>=0.7.2
+
+# Texting (SMS / WhatsApp). Same SDK for both — only the address prefix differs.
+twilio>=9.0.0
