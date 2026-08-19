@@ -1,97 +1,119 @@
-# Nora SSH tunnel
+# Nora — autonomous real-time voice agent
+
+Nora is a voice chatbot built to sound like a person on a call: sub-second
+replies, you can interrupt her mid-sentence, and she takes turns the way humans
+do. **Phase 1** (this repo) is a browser voice call; the design extends to real
+phone calls (VoIP/SIP) in **Phase 2** — see [`ROADMAP.md`](./ROADMAP.md).
+
+## How it works
+
+```
+browser mic ──WebRTC──▶ Pipecat transport ──▶ OpenAI Realtime (S2S) ──▶ transport ──▶ browser speaker
+                              ▲                          │
+                              └──────── tool calls ◀─────┘
+```
+
+- **OpenAI Realtime** is a *speech-to-speech* model: audio in, voice out, over a
+  WebSocket. It handles voice activity detection, **semantic turn-taking**, and
+  **barge-in** natively — that's what makes it feel human, not the word quality.
+- **Pipecat** owns the transport (WebRTC now; phone is a swap later) and the
+  function-calling loop. We write conversation logic, not packet plumbing.
+- The **server sits in the audio path**, so adding a phone in Phase 2 is a
+  transport change, not a rewrite.
+
+| File / dir | What it is |
+| --- | --- |
+| `server/bot.py` | The Pipecat pipeline + OpenAI Realtime wiring (the heart). |
+| `server/persona.py` | Nora's personality, voice, and turn-taking config. |
+| `server/tools.py` | Function-calling scaffold (ships a real `get_current_time` tool). |
+| `client/` | Branded browser UI (no build step; loads Pipecat JS from a CDN). |
+| `ROADMAP.md` | Phase 1 detail + the recommended Phase 2 plan. |
+| `tunnel.sh`, `ssh/`, `keys/` | SSH tunnel to the remote box (see below). |
+
+## Quick start
+
+Requires Python 3.10+ and an OpenAI API key with Realtime access.
+
+```sh
+make install                 # creates .venv and installs deps
+cp .env.example .env         # then edit .env: set OPENAI_API_KEY
+make run                     # starts Nora on 0.0.0.0:8080 (WebRTC)
+```
+
+Then talk to her two ways:
+
+- **Prebuilt UI (verified path):** open `http://localhost:8080/client`.
+- **Branded client:** `make client` (serves `client/` on `:3000`) and open
+  `http://localhost:3000`, with the server field pointing at the bot.
+
+On the remote box, run `make run` there and reach `:8080` through the SSH tunnel
+below; browsers need `localhost` (or HTTPS) for mic access, which the tunnel
+gives you.
+
+Configuration (model, voice, host/port) lives in `.env` — see `.env.example`.
+Voices: `marin`, `cedar`, `alloy`, `ash`, `ballad`, `coral`, `echo`, `sage`,
+`shimmer`, `verse`.
+
+## Version notes
+
+The voice stack moves fast. This targets `pipecat-ai >= 0.0.84`, where the
+Realtime service lives at `pipecat.services.openai.realtime`. If a newer release
+has shifted the API, the canonical reference is Pipecat's
+`examples/realtime/realtime-openai.py` and the
+[OpenAI Realtime service docs](https://docs.pipecat.ai/server/services/s2s/openai).
+`server/bot.py` is small and isolates the moving parts (`build_llm`) for easy pinning.
+
+---
+
+## SSH tunnel to the remote box
 
 Forwards your local **`http://localhost:8080`** to **`localhost:8080`** on the
-remote box `154.59.156.22`, so you can reach a service running there as if it
-were local.
+remote box `154.59.156.22`, so the browser reaches Nora as if she were local
+(and gets mic access via `localhost`).
 
-Equivalent to running:
+Equivalent to:
 
 ```sh
 ssh -p 43010 root@154.59.156.22 -L 8080:localhost:8080
 ```
 
-> Run all of this from **your own machine** — not from a CI/sandbox, which
-> can't reach the remote host.
+> Run this from **your own machine** — not from a CI/sandbox, which can't reach
+> the remote host.
 
-## Connection details
+| Setting | Value |
+| --- | --- |
+| Host | `154.59.156.22` |
+| Port | `43010` |
+| User | `root` |
+| Local forward | `8080 -> localhost:8080` |
 
-| Setting        | Value             |
-| -------------- | ----------------- |
-| Host           | `154.59.156.22`   |
-| Port           | `43010`           |
-| User           | `root`            |
-| Local forward  | `8080 -> localhost:8080` |
-
-## Files
-
-- `ssh/config` — an SSH `Host nora-tunnel` block you can include/copy into `~/.ssh/config`.
-- `tunnel.sh` — a standalone connect script (no SSH config changes needed).
-- `keys/joseph-mac.pub` — the public key authorized to log in (`joseph-mac`).
-
-## 1. One-time setup: authorize your key on the server
-
-The tunnel is passwordless only once your **public** key is in `root`'s
-`authorized_keys` on the remote box. From your Mac:
+**One-time:** authorize your key on the server:
 
 ```sh
-# Easiest — copies your key and appends it correctly:
 ssh-copy-id -i keys/joseph-mac.pub -p 43010 root@154.59.156.22
 ```
 
-Or do it manually (if `ssh-copy-id` isn't available):
-
-```sh
-cat keys/joseph-mac.pub | ssh -p 43010 root@154.59.156.22 \
-  'mkdir -p ~/.ssh && chmod 700 ~/.ssh && cat >> ~/.ssh/authorized_keys && chmod 600 ~/.ssh/authorized_keys'
-```
-
-Both prompt for the server password the first time; after that, key auth works.
-
-## 2. Connect
-
-**Option A — via the script:**
+**Connect:**
 
 ```sh
 ./tunnel.sh                 # opens a remote shell with the tunnel active
 ./tunnel.sh --tunnel-only   # forward only, no shell (good for backgrounding)
 ```
 
-Override any value with env vars, e.g. `LOCAL_PORT=9090 ./tunnel.sh`.
+Override any value with env vars, e.g. `LOCAL_PORT=9090 ./tunnel.sh`. Or use the
+`Host nora-tunnel` block in `ssh/config` (`Include` it from `~/.ssh/config`,
+then `ssh nora-tunnel`).
 
-**Option B — via SSH config:**
-
-Add to the top of `~/.ssh/config`:
-
-```sshconfig
-Include ~/path/to/this/repo/ssh/config
-```
-
-(or paste the `Host nora-tunnel` block in directly), then:
+**Verify** (with the tunnel open, Nora running on the box):
 
 ```sh
-ssh nora-tunnel
+curl -v http://localhost:8080/client
 ```
 
-## 3. Verify
-
-With the tunnel open, in another terminal:
-
-```sh
-curl -v http://localhost:8080/
-```
-
-or just open <http://localhost:8080> in a browser.
-
-## Troubleshooting
-
-- **`bind: Address already in use`** — local `8080` is taken. Use a different
-  local port: `LOCAL_PORT=9090 ./tunnel.sh` (then browse `localhost:9090`).
-- **`Permission denied (publickey)`** — your key isn't authorized yet (redo
-  step 1) or `IdentityFile` in `ssh/config` points at the wrong private key.
-- **`channel ... open failed: connect failed`** — nothing is listening on
-  `localhost:8080` *on the remote*; start the remote service first.
-- **Connection hangs / drops** — the keepalive settings
-  (`ServerAliveInterval`/`ServerAliveCountMax`) already retry; check the host,
-  port `43010`, and any firewall in between.
-- **Confirm the forward is active** — add `-v` (e.g. `./tunnel.sh -v`) and look
-  for `Local forwarding listening on ... port 8080`.
+### Tunnel troubleshooting
+- **`bind: Address already in use`** — local `8080` taken: `LOCAL_PORT=9090 ./tunnel.sh`.
+- **`Permission denied (publickey)`** — key not authorized yet, or wrong `IdentityFile`.
+- **`channel ... open failed: connect failed`** — nothing listening on the
+  remote `:8080`; start Nora (`make run`) first.
+- **Connection hangs/drops** — keepalive already retries; check host, port
+  `43010`, and any firewall.
