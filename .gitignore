@@ -14,6 +14,9 @@ env/
 *.log
 recordings/
 
+# Generated selfie images (served locally, never committed)
+media/
+
 # OS / editor
 .DS_Store
 .idea/

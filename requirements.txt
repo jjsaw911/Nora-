@@ -12,3 +12,6 @@ loguru>=0.7.2
 
 # Texting (SMS / WhatsApp). Same SDK for both — only the address prefix differs.
 twilio>=9.0.0
+
+# Async HTTP client for talking to the local image-generation server (A1111 API).
+httpx>=0.27.0
