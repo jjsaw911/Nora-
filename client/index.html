@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Nora — talk to me</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <main class="stage">
+      <div class="orb" id="orb" data-state="idle"></div>
+      <h1>Nora</h1>
+      <p class="status" id="status">Tap to start talking</p>
+
+      <button class="cta" id="toggle">Start call</button>
+
+      <section class="transcript" id="transcript" aria-live="polite"></section>
+
+      <label class="server">
+        Server
+        <input id="server" type="text" value="" placeholder="http://localhost:8080" />
+      </label>
+    </main>
+
+    <!-- Bot audio is routed here. -->
+    <audio id="bot-audio" autoplay></audio>
+
+    <script type="module" src="./app.js"></script>
+  </body>
+</html>
