@@ -1,0 +1,5 @@
+# Local Whisper server (OpenAI-compatible /v1/audio/transcriptions)
+faster-whisper>=1.1.0
+fastapi>=0.110
+uvicorn>=0.29
+python-multipart>=0.0.9
